@@ -57,7 +57,7 @@ protected :
 
 private :
 	//URLCtrl _emailLink;
-	URLCtrl _pageLink;
+	//URLCtrl _pageLink;
 	HICON _hIcon = nullptr;
 };
 

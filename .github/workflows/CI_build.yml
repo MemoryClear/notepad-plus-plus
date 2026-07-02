@@ -164,6 +164,21 @@ jobs:
            $newContent = $content -replace 'TEXT\(\"Notepad\+\+ v.*\"\)', 'TEXT("Notepad++ GH_BUILD")'
            $newContent | Set-Content -Path 'resource.h'
 
+    - name: Remove political hyperlinks from About dialog
+      run: |
+           $file = "PowerEditor\src\WinControls\AboutDlg\AboutDlg.cpp"
+           if (Test-Path $file) {
+               $content = Get-Content $file -Raw
+               # Comment out uncommented _pageLink.init calls
+               $content = $content -replace '([^\r\n])(\s*)(_pageLink\.init\(_hInst, _hSelf\);)', '$1$2// $3'
+               # Comment out uncommented _pageLink.create(AuthorName, https://...) calls
+               $content = $content -replace '([^\r\n])(\s*)(_pageLink\.create\(::GetDlgItem\(_hSelf, IDC_AUTHOR_NAME\), L"https://[^"]*"\);)', '$1$2// $3'
+               # Comment out uncommented _pageLink.create(HomeAddr, https://...) calls
+               $content = $content -replace '([^\r\n])(\s*)(_pageLink\.create\(::GetDlgItem\(_hSelf, IDC_HOME_ADDR\), L"https://[^"]*"\);)', '$1$2// $3'
+               Set-Content -Path $file -Value $content
+               Write-Host "Political hyperlinks removed from AboutDlg.cpp"
+           }
+
     - name: MSBuild of n++ exe
       working-directory: PowerEditor\visual.net\
       run: msbuild notepadPlus.sln /m /p:configuration="${{ matrix.build_configuration }}" /p:platform="${{ matrix.build_platform }}"
@@ -298,6 +313,18 @@ jobs:
            $newContent = $content -replace 'TEXT\(\"Notepad\+\+ v.*\"\)', 'TEXT("Notepad++ GH_BUILD")'
            $newContent | Set-Content -Path 'resource.h'
 
+    - name: Remove political hyperlinks from About dialog
+      run: |
+           $file = "PowerEditor\src\WinControls\AboutDlg\AboutDlg.cpp"
+           if (Test-Path $file) {
+               $content = Get-Content $file -Raw
+               $content = $content -replace '([^\r\n])(\s*)(_pageLink\.init\(_hInst, _hSelf\);)', '$1$2// $3'
+               $content = $content -replace '([^\r\n])(\s*)(_pageLink\.create\(::GetDlgItem\(_hSelf, IDC_AUTHOR_NAME\), L"https://[^"]*"\);)', '$1$2// $3'
+               $content = $content -replace '([^\r\n])(\s*)(_pageLink\.create\(::GetDlgItem\(_hSelf, IDC_HOME_ADDR\), L"https://[^"]*"\);)', '$1$2// $3'
+               Set-Content -Path $file -Value $content
+               Write-Host "Political hyperlinks removed from AboutDlg.cpp"
+           }
+
     - name: Add nmake to PATH
       uses: TheMrMilchmann/setup-msvc-dev@v4
       with:
@@ -374,6 +401,19 @@ jobs:
            $content = Get-Content -Path 'resource.h'
            $newContent = $content -replace 'TEXT\(\"Notepad\+\+ v.*\"\)', 'TEXT("Notepad++ GH_BUILD")'
            $newContent | Set-Content -Path 'resource.h'
+
+    - name: Remove political hyperlinks from About dialog
+      shell: pwsh
+      run: |
+           $file = "PowerEditor\src\WinControls\AboutDlg\AboutDlg.cpp"
+           if (Test-Path $file) {
+               $content = Get-Content $file -Raw
+               $content = $content -replace '([^\r\n])(\s*)(_pageLink\.init\(_hInst, _hSelf\);)', '$1$2// $3'
+               $content = $content -replace '([^\r\n])(\s*)(_pageLink\.create\(::GetDlgItem\(_hSelf, IDC_AUTHOR_NAME\), L"https://[^"]*"\);)', '$1$2// $3'
+               $content = $content -replace '([^\r\n])(\s*)(_pageLink\.create\(::GetDlgItem\(_hSelf, IDC_HOME_ADDR\), L"https://[^"]*"\);)', '$1$2// $3'
+               Set-Content -Path $file -Value $content
+               Write-Host "Political hyperlinks removed from AboutDlg.cpp"
+           }
 
     - name: Install and update MSYS2 tools
       uses: msys2/setup-msys2@v2
