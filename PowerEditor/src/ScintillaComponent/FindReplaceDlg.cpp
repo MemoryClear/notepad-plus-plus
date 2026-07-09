@@ -2933,7 +2933,8 @@ intptr_t CALLBACK FindReplaceDlg::run_dlgProc(UINT message, WPARAM wParam, LPARA
 // true  : the text2find is found
 // false : the text2find is not found
 
-bool FindReplaceDlg::processFindNext(const wchar_t *txt2find, const FindOption *options, FindStatus *oFindStatus, FindNextType findNextType /* = FINDNEXTTYPE_FINDNEXT */)
+bool FindReplaceDlg::processFindNext(const wchar_t* txt2find,
+	const FindOption* options, FindStatus* oFindStatus, FindNextType findNextType /* = FINDNEXTTYPE_FINDNEXT */, MatchPosition* pMatch)
 {
 	if (oFindStatus)
 		*oFindStatus = FSFound;
@@ -3132,6 +3133,12 @@ bool FindReplaceDlg::processFindNext(const wchar_t *txt2find, const FindOption *
 
 	delete [] pText;
 
+	if (pMatch)
+	{
+		pMatch->start = start;
+		pMatch->end = end;
+	}
+
 	return true;
 }
 
@@ -3296,7 +3303,8 @@ int FindReplaceDlg::markAllInc(const FindOption *opt)
 	return nbFound;
 }
 
-int FindReplaceDlg::processAll(ProcessOperation op, const FindOption *opt, bool isEntire, const FindersInfo *pFindersInfo, int colourStyleID)
+int FindReplaceDlg::processAll(ProcessOperation op, const FindOption* opt,
+	bool isEntire, const FindersInfo* pFindersInfo, int colourStyleID, std::vector<MatchPosition>* pMatches)
 {
 	NativeLangSpeaker* pNativeSpeaker = (NppParameters::getInstance()).getNativeLangSpeaker();
 	if (op == ProcessReplaceAll && (*_ppEditView)->getCurrentBuffer()->isReadOnly())
@@ -3384,8 +3392,7 @@ int FindReplaceDlg::processAll(ProcessOperation op, const FindOption *opt, bool 
 	findReplaceInfo._startRange = startPosition;
 	findReplaceInfo._endRange = endPosition;
 
-	int nbProcessed = processRange(op, findReplaceInfo, pFindersInfo, pOptions, colourStyleID);
-
+	int nbProcessed = processRange(op, findReplaceInfo, pFindersInfo, pOptions, colourStyleID, nullptr, pMatches);
 
 	// Turn ON the notifications after operations
 	(*_ppEditView)->execute(SCI_SETMODEVENTMASK, notifFlag);
@@ -3419,7 +3426,8 @@ int FindReplaceDlg::processAll(ProcessOperation op, const FindOption *opt, bool 
 	return nbProcessed;
 }
 
-int FindReplaceDlg::processRange(ProcessOperation op, FindReplaceInfo & findReplaceInfo, const FindersInfo * pFindersInfo, const FindOption *opt, int colourStyleID, ScintillaEditView *view2Process)
+int FindReplaceDlg::processRange(ProcessOperation op, FindReplaceInfo& findReplaceInfo, const FindersInfo* pFindersInfo,
+	const FindOption* opt, int colourStyleID, ScintillaEditView* view2Process, std::vector<MatchPosition>* pMatches)
 {
 	int nbProcessed = 0;
 
@@ -3540,6 +3548,14 @@ int FindReplaceDlg::processRange(ProcessOperation op, FindReplaceInfo & findRepl
 		{
 			//we found a result but outside our range, therefore do not process it
 			break;
+		}
+
+		if (pMatches)
+		{
+			MatchPosition match;
+			match.start = targetStart;
+			match.end = targetEnd;
+			pMatches->push_back(match);
 		}
 
 		intptr_t foundTextLen = targetEnd - targetStart;
@@ -6340,6 +6356,25 @@ void FindIncrementDlg::display(bool toShow) const
 	_pRebar->setIDVisible(_rbBand.wID, toShow);
 }
 
+LRESULT CALLBACK IncrFindChildProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData)
+{
+	if (uMsg == WM_KILLFOCUS)
+	{
+		HWND hwndGaining = reinterpret_cast<HWND>(wParam);
+		HWND hwndDlg = reinterpret_cast<HWND>(dwRefData);
+
+		if (hwndGaining != NULL && !IsChild(hwndDlg, hwndGaining))
+		{
+			::SendMessageW(hwndDlg, NPPM_INTERNAL_REINITINCSEARCHCOUNT, 0, 0);
+		}
+	}
+
+	if (uMsg == WM_NCDESTROY)
+		RemoveWindowSubclass(hWnd, IncrFindChildProc, uIdSubclass);
+
+	return DefSubclassProc(hWnd, uMsg, wParam, lParam);
+}
+
 intptr_t CALLBACK FindIncrementDlg::run_dlgProc(UINT message, WPARAM wParam, LPARAM /*lParam*/)
 {
 	switch (message)
@@ -6398,6 +6433,24 @@ intptr_t CALLBACK FindIncrementDlg::run_dlgProc(UINT message, WPARAM wParam, LPA
 		{
 			NppDarkMode::autoSubclassAndThemeChildControls(getHSelf());
 			::SendDlgItemMessage(_hSelf, IDC_INCFINDCOUNT, BM_SETCHECK, TRUE, 0);
+
+			static const struct { int id; UINT_PTR subclassId; } controls[] =
+			{
+				{ IDCANCEL,              1 },
+				{ IDC_INCFINDTEXT,       2 },
+				{ IDC_INCFINDPREVOK,     3 },
+				{ IDC_INCFINDNXTOK,      4 },
+				{ IDC_INCFINDMATCHCASE,  5 },
+				{ IDC_INCFINDHILITEALL,  6 },
+				{ IDC_INCFINDCOUNT,      7 },
+			};
+
+			for (auto& c : controls)
+			{
+				HWND hwndCtrl = GetDlgItem(_hSelf, c.id);
+				SetWindowSubclass(hwndCtrl, IncrFindChildProc, c.subclassId, (DWORD_PTR)_hSelf);
+			}
+
 			return TRUE;
 		}
 
@@ -6415,6 +6468,7 @@ intptr_t CALLBACK FindIncrementDlg::run_dlgProc(UINT message, WPARAM wParam, LPA
 					(*(_pFRDlg->_ppEditView))->clearIndicator(SCE_UNIVERSAL_FOUND_STYLE_INC);
 					(*(_pFRDlg->_ppEditView))->grabFocus();
 					display(false);
+					_matches.clear();
 					return TRUE;
 
 				case IDM_SEARCH_FINDINCREMENT:	// Accel table: Start incremental search
@@ -6431,7 +6485,7 @@ intptr_t CALLBACK FindIncrementDlg::run_dlgProc(UINT message, WPARAM wParam, LPA
 				case IDM_SEARCH_FINDNEXT:		// Accel table: find next
 				case IDC_INCFINDPREVOK:
 				case IDC_INCFINDNXTOK:
-				case IDOK:
+				case IDOK:						// Enter key in the edit field
 					updateSearch = true;
 					advance = true;
 					forward = (LOWORD(wParam) == IDC_INCFINDNXTOK) ||
@@ -6444,10 +6498,15 @@ intptr_t CALLBACK FindIncrementDlg::run_dlgProc(UINT message, WPARAM wParam, LPA
 					updateSearch = true;
 					updateCase = true;
 					updateHiLight = true;
+					_matches.clear();
 					break;
 
 				case IDC_INCFINDHILITEALL:
 					updateHiLight = true;
+					break;
+
+				case IDC_INCFINDCOUNT:
+					_matches.clear();
 					break;
 
 				case IDC_INCFINDTEXT:
@@ -6456,6 +6515,7 @@ intptr_t CALLBACK FindIncrementDlg::run_dlgProc(UINT message, WPARAM wParam, LPA
 						updateSearch = true;
 						updateHiLight = isCheckedOrNot(IDC_INCFINDHILITEALL);
 						updateCase = isCheckedOrNot(IDC_INCFINDMATCHCASE);
+						_matches.clear();
 						break;
 					}
 					// treat other edit notifications as unhandled
@@ -6473,15 +6533,33 @@ intptr_t CALLBACK FindIncrementDlg::run_dlgProc(UINT message, WPARAM wParam, LPA
 			if (updateSearch)
 			{
 				FindStatus findStatus = FSFound;
-				bool isFound = _pFRDlg->processFindNext(str2Search.c_str(), &fo, &findStatus);
+				MatchPosition match;
+
+				bool isFound = _pFRDlg->processFindNext(str2Search.c_str(), &fo, &findStatus, FINDNEXTTYPE_FINDNEXT, &match);
 
 				fo._str2Search = str2Search;
-				int nbCounted = -1;
+				intptr_t nth = 0;
+
 				if (isCheckedOrNot(IDC_INCFINDCOUNT))
 				{
-					nbCounted = _pFRDlg->processAll(ProcessCountAll, &fo);
+					if (!_matches.size())
+						_pFRDlg->processAll(ProcessCountAll, &fo, false, nullptr, -1, &_matches);
+
+					if (_matches.size() && (match.start > -1) && (match.end > -1))
+					{
+						size_t totalMatches = _matches.size();
+						for (size_t i = 0; i < totalMatches; ++i)
+						{
+							if ((match.start == _matches[i].start) && (match.end == _matches[i].end))
+							{
+								nth = i + 1;
+								break;
+							}
+						}
+					}
 				}
-				setFindStatus(findStatus, nbCounted);
+
+				setFindStatus(findStatus, _matches.size(), static_cast<int>(nth));
 
 				// If case-sensitivity changed (to Match=yes), there may have been a matched selection that
 				// now does not match; so if Not Found, clear selection and put caret at beginning of what was
@@ -6498,6 +6576,12 @@ intptr_t CALLBACK FindIncrementDlg::run_dlgProc(UINT message, WPARAM wParam, LPA
 				bool highlight = !str2Search.empty() && isCheckedOrNot(IDC_INCFINDHILITEALL);
 				markSelectedTextInc(highlight, &fo);
 			}
+			return TRUE;
+		}
+
+		case NPPM_INTERNAL_REINITINCSEARCHCOUNT:
+		{
+			_matches.clear();
 			return TRUE;
 		}
 
@@ -6549,7 +6633,7 @@ void FindIncrementDlg::markSelectedTextInc(bool enable, FindOption *opt)
 	_pFRDlg->markAllInc(opt);
 }
 
-void FindIncrementDlg::setFindStatus(FindStatus iStatus, int nbCounted)
+void FindIncrementDlg::setFindStatus(FindStatus iStatus, size_t nbCounted, int nth)
 {
 	wstring statusStr2Display;
 
@@ -6559,26 +6643,12 @@ void FindIncrementDlg::setFindStatus(FindStatus iStatus, int nbCounted)
 
 	NativeLangSpeaker* pNativeSpeaker = (NppParameters::getInstance()).getNativeLangSpeaker();
 
-	if (nbCounted >= 0)
+	if (nbCounted > 0)
 	{
-		statusStr2Display = pNativeSpeaker->getLocalizedStrFromID("IncrementalFind-FSFound", L"");
-
-		if (statusStr2Display.empty())
-		{
-			wchar_t strFindFSFound[128] = L"";
-
-			if (nbCounted == 1)
-				wsprintf(strFindFSFound, L"%d match", nbCounted);
-			else
-				wsprintf(strFindFSFound, L"%s matches", commafyInt(nbCounted).c_str());
-			statusStr2Display = strFindFSFound;
-		}
-		else
-		{
-			statusStr2Display = stringReplace(statusStr2Display, L"$INT_REPLACE$", std::to_wstring(nbCounted));
-		}
+		wchar_t strFindFSFound[128]{};
+		wsprintf(strFindFSFound, L"%d/%d", nth, nbCounted);
+		statusStr2Display = strFindFSFound;
 	}
-
 
 	switch (iStatus)
 	{
@@ -6587,12 +6657,28 @@ void FindIncrementDlg::setFindStatus(FindStatus iStatus, int nbCounted)
 			break;
 
 		case FindStatus::FSTopReached:
-			statusStr2Display = pNativeSpeaker->getLocalizedStrFromID("IncrementalFind-FSTopReached", strFSTopReached);
+		{
+			auto topReached = pNativeSpeaker->getLocalizedStrFromID("IncrementalFind-FSTopReached", strFSTopReached);
+
+			if (nbCounted > 0)
+				statusStr2Display += (L" - " + topReached);
+			else
+				statusStr2Display = topReached;
+
 			break;
+		}
 
 		case FindStatus::FSEndReached:
-			statusStr2Display = pNativeSpeaker->getLocalizedStrFromID("IncrementalFind-FSEndReached", strFSEndReached);
+		{
+			auto endReached = pNativeSpeaker->getLocalizedStrFromID("IncrementalFind-FSEndReached", strFSEndReached);
+
+			if (nbCounted > 0)
+				statusStr2Display += (L" - " + endReached);
+			else
+				statusStr2Display = endReached;
+
 			break;
+		}
 
 		case FindStatus::FSFound:
 			break;
